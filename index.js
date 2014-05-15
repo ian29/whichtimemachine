@@ -27,12 +27,13 @@ var out = process.stdout;
 
 var start = argv._[0];
 var end = argv._[1];
+var rels = [];
 
 for (var day = start; day <= end; day++) {
     var xml = day + '.xml';
     var gj = day + '.geojson';
 
-    convert(xml, gj);
+    readosm(xml, gj);
     /*
     step(
         function () {
@@ -53,12 +54,12 @@ function getdata(xml) {
             uri: 'http://planet.openstreetmap.org/replication/day/000/000/' + day + '.osc.gz'
         }
 
-        var writeXML = fs.createWriteStream(xml);
+            var writeXML = fs.createWriteStream(xml);
 
-        request(options)
-            .on('error', log)
-            .pipe(zlib.createGunzip())
-            .pipe(writeXML);
+            request(options)
+                .on('error', log)
+                .pipe(zlib.createGunzip())
+                .pipe(writeXML);
 
         console.log('Downloading ', xml);
     } else {
@@ -66,24 +67,91 @@ function getdata(xml) {
     }
 }
 
-function convert (xml, gj) {
+function readosm (xml, gj) {
     var geojson = { "type": "FeatureCollection", "features": [] }
-    //console.log('hi', xml);
+
     // osmium things
     var file = new osmium.File(xml)
-    var reader = new osmium.Reader(file);
+    var relreader = new osmium.Reader(file, {relation:true});
     var handler = new osmium.Handler();
+/*
+*/
+    handler.on('relation',function(relation) {
+        if (relation.tags().type == 'restriction') {
+            //console.log(relation.members()[0].wkt());
+            var geom = {
+                id: relation.id,
+                ts: relation.timestamp,
+                ways: [],
+                nodes: [],
+                points: [],
+                lines: []
+            }
+            for (var m = 0; m < relation.members().length; m++) {
+                if (relation.members()[m].type == 'w') {
+                    geom.ways.push(relation.members()[m].ref);
+                }
+                if (relation.members()[m].type == 'n') {
+                    geom.nodes.push(relation.members()[m].ref);
+                }
+            }
+            rels.push(geom);
+            //console.log(rels);
+        }
 
-    handler.on('node',function(node) {
+    });
+    handler.on('done', function() {
+        console.log('got relation members, reconstructing geoms');
+    });
 
-        if (
-            bbox.w <= node.lon &&
-            bbox.s <= node.lat &&
-            bbox.e >= node.lon &&
-            bbox.n >= node.lat
-        ) {
-            switch (argv.f)
-            {
+    relreader.apply(handler);
+
+    var geomhandler = new osmium.Handler();
+    var geomreader = new osmium.Reader(file);
+
+    if (rels.length > 0) {
+        for (r in rels) {
+
+            geomhandler.on('way', function(way) {
+
+                for (w in rels[r].ways) {
+                    if (way.id == rels[r].ways[w]) {
+                        rels[r].lines.push(way.wkt());
+                        console.log(way);
+                    }
+                }
+
+            });
+            geomhandler.on('node', function(node) {
+
+                for (n in rels[r].nodes) {
+                    if (node.id == rels[r].nodes[n]) {
+                        rels[r].points.push(node.wkt());
+                        console.log(node);
+                    }
+                }
+
+            });
+        }
+        geomhandler.on('done', function() {
+            console.log('done!');
+            // fs.unlink(file, function (err) { if (err) throw err; });
+        });
+    }
+    geomreader.apply(geomhandler);
+    console.log(rels);
+}
+
+function convert() {
+    if (
+        bbox.w <= node.lon &&
+        bbox.s <= node.lat &&
+        bbox.e >= node.lon &&
+        bbox.n >= node.lat
+    ) {
+
+        switch (argv.f)
+        {
             case 'sqlite':
                 //console.log('hello');
                 db.run(
@@ -103,17 +171,12 @@ function convert (xml, gj) {
                         timestamp: node.timestamp
                     }
                 }
+
                 geojson.features.push(feat);
                 fs.writeFileSync(gj, JSON.stringify(geojson,null,4));
-            }
         }
-    });
-    handler.on('done', function() {
-        console.log('done!');
-        // fs.unlink(file, function (err) { if (err) throw err; });
-    });
 
-    reader.apply(handler);
+    }
 }
 
 /**/
