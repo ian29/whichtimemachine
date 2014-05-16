@@ -41,7 +41,7 @@ for (var day = start; day <= end; day++) {
         },
         function (err, xml, gj) {
             if (err) throw err;
-            convert(xml, gj);
+            readosm(xml, gj);
         }
     );
     /**/
@@ -68,15 +68,16 @@ function getdata(xml) {
 }
 
 function readosm (xml, gj) {
-    var geojson = { "type": "FeatureCollection", "features": [] }
+    //var geojson = { "type": "FeatureCollection", "features": [] }
 
     // osmium things
     var file = new osmium.File(xml)
-    var relreader = new osmium.Reader(file, {relation:true});
+    var relreader = new osmium.Reader(file, { relation:true });
     var handler = new osmium.Handler();
 /*
 */
     handler.on('relation',function(relation) {
+        // if (err) throw err.message;
         if (relation.tags().type == 'restriction') {
             //console.log(relation.members()[0].wkt());
             var geom = {
@@ -107,39 +108,39 @@ function readosm (xml, gj) {
     relreader.apply(handler);
 
     var geomhandler = new osmium.Handler();
-    var geomreader = new osmium.Reader(file);
+    var geomreader = new osmium.Reader(file, { node:true, way:true });
 
     if (rels.length > 0) {
-        for (r in rels) {
 
-            geomhandler.on('way', function(way) {
-
+        geomhandler.on('way', function(way) {
+            for (r in rels) {
                 for (w in rels[r].ways) {
                     if (way.id == rels[r].ways[w]) {
                         rels[r].lines.push(way.wkt());
-                        console.log(way);
+                        //console.log(way.wkt());
                     }
                 }
+            }
 
-            });
-            geomhandler.on('node', function(node) {
-
+        });
+        geomhandler.on('node', function(node) {
+            for (r in rels) {
                 for (n in rels[r].nodes) {
                     if (node.id == rels[r].nodes[n]) {
                         rels[r].points.push(node.wkt());
-                        console.log(node);
+                        //console.log(node.wkt());
                     }
                 }
+            }
+        });
 
-            });
-        }
         geomhandler.on('done', function() {
             console.log('done!');
             // fs.unlink(file, function (err) { if (err) throw err; });
         });
     }
     geomreader.apply(geomhandler);
-    console.log(rels);
+    //console.log(rels);
 }
 
 function convert() {
